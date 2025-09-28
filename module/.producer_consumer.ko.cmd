@@ -1,1 +1,0 @@
-savedcmd_producer_consumer.ko := ld -r -m elf_x86_64 -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T /usr/src/linux-headers-6.14.0-32-generic/scripts/module.lds -o producer_consumer.ko producer_consumer.o producer_consumer.mod.o .module-common.o

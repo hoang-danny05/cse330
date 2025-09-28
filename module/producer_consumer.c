@@ -31,17 +31,59 @@ module_param(uid, uint, 0);
 
 // number of empty slots
 // producer waits for this 
-struct semaphore empty; 
+static struct semaphore empty; 
 // number of full slots
 // consumer waits for this
-struct semaphore full;
+static struct semaphore full;
 // mutex lock, only one producer or consumer may run at a time.
-struct semaphore lock;
+static struct semaphore lock;
 
-struct task_struct *buffer;
-struct task_struct *consumer_threads;
-struct task_struct *producer_threads;
+static struct task_struct *buffer;
+//static struct task_struct *consumer_threads;
+static struct task_struct **producer_threads;
 
+int _ = 0; //unused int 
+
+static int producer_thread(void* arg) {
+  struct task_struct* task;
+
+  for_each_process(task) {
+    if(task->cred->uid.val != uid)
+      continue;
+
+    if (task->exit_state & EXIT_ZOMBIE) {
+      
+      //acuire index
+      int idx = down_interruptible(&empty);
+
+      //aquire lock
+      _ = down_interruptible(&lock);
+
+      printk(KERN_INFO "[%s] has produced zombie process with pid %d and parent id %d\n", 
+             //TODO get name here
+             "UNKNOWN GUY",
+             task->pid,
+             task->parent->pid
+             ); 
+
+      printk(KERN_INFO "debug: idx=%d", 
+             idx
+             ); 
+
+      // signal lock
+      up(&lock);
+
+      // alert that full is allowed
+      up(&full);
+
+    }
+
+    if (kthread_should_stop()) {
+      break;
+    }
+  }
+  return 0;
+}
 
 
 
@@ -59,20 +101,26 @@ static int __init pc_init(void) {
 
   // initialize shared buffer
   // note: kmalloc allocates to kernel-space memory 
-  const struct task_struct *structptr;
-  buffer = kmalloc(size * sizeof(structptr), GFP_KERNEL);
+  const struct task_struct examp_struct;
+
+  buffer = kmalloc(size * sizeof(examp_struct), GFP_KERNEL);
+
   printk(KERN_INFO "Buffer initialized");    
 
   sema_init(&empty, size);
   sema_init(&full, 0);
+  sema_init(&lock, 1);
 
   
-  // producer_threads = kmalloc(prod * sizeof(*task_struct));
-  // for (int i = 0; i < prod; i++) {
-  //   producer_threads[i] = kthread_run(producer_thread, NULL, "thread-%d", 1);
-  // }
+  producer_threads = kmalloc(prod * sizeof(&examp_struct), GFP_KERNEL);
+  for (int i = 0; i < prod; i++) {
+    producer_threads[i] = kthread_run(producer_thread, NULL, "thread-%d", 1);
+  }
   return 0;    
 }    
+
+
+
 
 static void __exit pc_exit(void) {    
   printk(KERN_INFO "Goodbye, World!\n");    
@@ -80,33 +128,7 @@ static void __exit pc_exit(void) {
   kfree(producer_threads);
 }    
 
-static int producer_thread(void* arg) {
-  size_t process_counter = 0;
-  struct task_struct* task;
 
-  for_each_process(task) {
-    if(task->cred->uid.val != uid)
-      continue;
-
-    if (task->exit_state & EXIT_ZOMBIE) {
-      //zombie process
-      //val = sem_getvalue(sem, &temp);
-      
-      int idx = down_interruptible(&empty);
-      printk(KERN_INFO "[%s] has produced zombie process with pid %u and parent id %u\n", 
-             //TODO get name here
-             "UNKNOWN GUY",
-             task->pid
-             ); 
-      up(&full);
-    }
-    ++process_counter;
-  }
-}
-
-
-// cant run anything here
-//producer = kthread_run(producer_thread, NULL, "thread-%d", 1);
 
 
 module_init(pc_init);    

@@ -39,13 +39,18 @@ static struct semaphore full;
 static struct semaphore lock;
 
 static struct task_struct *buffer;
-//static struct task_struct *consumer_threads;
+//static struct task_struct **consumer_threads;
 static struct task_struct **producer_threads;
 
 int _ = 0; //unused int 
 
+typedef struct thread_args {
+  int idx;
+} thread_args;
+
 static int producer_thread(void* arg) {
   struct task_struct* task;
+  thread_args *args = (thread_args *) arg;
 
   for_each_process(task) {
     if(task->cred->uid.val != uid)
@@ -61,7 +66,7 @@ static int producer_thread(void* arg) {
 
       printk(KERN_INFO "[%s] has produced zombie process with pid %d and parent id %d\n", 
              //TODO get name here
-             "UNKNOWN GUY",
+             producer_threads[args->idx]->comm,
              task->pid,
              task->parent->pid
              ); 
@@ -82,6 +87,7 @@ static int producer_thread(void* arg) {
       break;
     }
   }
+  kfree(arg);
   return 0;
 }
 
@@ -114,7 +120,9 @@ static int __init pc_init(void) {
   
   producer_threads = kmalloc(prod * sizeof(&examp_struct), GFP_KERNEL);
   for (int i = 0; i < prod; i++) {
-    producer_threads[i] = kthread_run(producer_thread, NULL, "thread-%d", 1);
+    thread_args *args = (thread_args *)kmalloc(sizeof(thread_args), GFP_KERNEL);
+    args->idx = i;
+    producer_threads[i] = kthread_run(producer_thread, args, "thread-%d", 1);
   }
   return 0;    
 }    

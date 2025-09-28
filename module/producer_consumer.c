@@ -83,7 +83,7 @@ static int full_val = 0;
  * */
 
 static struct task_struct **buffer;
-//static struct task_struct **consumer_threads;
+static struct task_struct **consumer_threads;
 static struct task_struct **producer_threads;
 
 int _ = 0; //unused int 
@@ -102,21 +102,21 @@ static int producer_thread(void* arg) {
 
     if (task->exit_state & EXIT_ZOMBIE) {
       
-      //acuire index
+      //acuire a spot to produce
       _ = down_interruptible(&empty);
 
       //aquire lock
       _ = down_interruptible(&lock);
 
 
-      printk(KERN_INFO "[%s] has produced zombie process with pid %d and parent id %d\n", 
+      printk(KERN_INFO "[%s] has produced zombie process with pid %d and parent pid %d\n", 
              producer_threads[args->idx]->comm,
              task->pid,
              task->parent->pid
              ); 
 
       int idx = (size - empty_val + offset) % size;
-      printk(KERN_INFO "debug: idx=%d", 
+      printk(KERN_INFO "> [p] debug: idx=%d", 
              idx
              ); 
 
@@ -142,6 +142,50 @@ static int producer_thread(void* arg) {
   return 0;
 }
 
+
+static int consumer_thread(void* arg) {
+  thread_args *args = (thread_args *) arg;
+
+  while (!kthread_should_stop()) {
+
+    // aquire a spot to consume 
+    _ = down_interruptible(&full);
+
+    //aquire lock
+    _ = down_interruptible(&lock);
+
+    
+    int idx = (offset) % size;
+    printk(KERN_INFO "> [c] debug: idx=%d", 
+            idx
+            ); 
+
+    // "consume"
+    struct task_struct *task = buffer[idx];
+    buffer[idx] = 0;
+
+
+    printk(KERN_INFO "[%s] has consumed zombie process with pid %d and parent pid %d\n", 
+            consumer_threads[args->idx]->comm,
+            task->pid,
+            task->parent->pid
+            ); 
+
+    // update vars while you have lock 
+    empty_val += 1;
+    full_val -= 1;
+    offset += 1;
+
+    // signal lock
+    up(&lock);
+
+    // alert that full is allowed
+    up(&empty);
+  }
+
+  kfree(arg);
+  return 0;
+}
 
 
 static int __init pc_init(void) {    
@@ -183,6 +227,15 @@ static int __init pc_init(void) {
     args->idx = i;
     producer_threads[i] = kthread_run(producer_thread, args, "Producer-%d", i + 1);
   }
+
+  consumer_threads = kmalloc(cons * sizeof(struct task_struct*), GFP_KERNEL);
+  for (int i = 0; i < cons; i++) {
+    thread_args *args = (thread_args *)kmalloc(sizeof(thread_args), GFP_KERNEL);
+    args->idx = i;
+    consumer_threads[i] = kthread_run(consumer_thread, args, "Consumer-%d", i + 1);
+  }
+
+
   return 0;    
 }    
 
@@ -198,10 +251,13 @@ static void __exit pc_exit(void) {
     kthread_stop(producer_threads[i]);
   }
 
-  // stop consumer threads
-  // for (int i = 0; i < prod; i++) { 
-  //   kthread_stop(producer_threads[i]);
-  // }
+  //stop consumer threads
+  for (int i = 0; i < cons; i++) { 
+    kthread_stop(consumer_threads[i]);
+  }
+
+  kfree(producer_threads);
+  kfree(consumer_threads);
 }    
 
 
